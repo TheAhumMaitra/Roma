@@ -1,0 +1,190 @@
+/* SPDX-FileCopyrightText: 2026 Ahum Maitra <theahummaitra@gmail.com> */
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+
+/*    Copyright (C) 2026 Ahum Maitra
+
+      This program is free software: you can redistribute it and/or modify
+      it under the terms of the GNU General Public License as published by
+      the Free Software Foundation, either version 3 of the License, or
+      (at your option) any later version.
+
+      This program is distributed in the hope that it will be useful,
+      but WITHOUT ANY WARRANTY; without even the implied warranty of
+      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+      GNU General Public License for more details.
+
+      You should have received a copy of the GNU General Public License
+      along with this program.  If not, see <https://www.gnu.org/licenses/>. */
+
+/* Header bar ------------------------------------------------------------- */
+
+button.flat,
+.chapter-button {
+  font-weight: bold;
+}
+
+.chapter-button {
+  min-width: 28px;
+  min-height: 24px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 0.85em;
+}
+
+.chapter-button:hover {
+  background-color: alpha(@theme_fg_color, 0.12);
+}
+
+.chapter-button:active {
+  background-color: alpha(@theme_fg_color, 0.2);
+}
+
+.search-field {
+  border-radius: 999px;
+  background-color: alpha(@theme_fg_color, 0.07);
+  border: 1px solid alpha(@theme_fg_color, 0.08);
+  padding: 4px 12px;
+}
+
+.search-field:hover {
+  background-color: alpha(@theme_fg_color, 0.11);
+}
+
+.search-field:focus {
+  background-color: @view_bg_color;
+  border-color: @accent_bg_color;
+}
+
+/* Sidebar ---------------------------------------------------------------- */
+
+.sidebar-heading {
+  font-size: 0.78em;
+  font-weight: bold;
+  color: alpha(@theme_fg_color, 0.55);
+}
+
+.book {
+  border-radius: 12px;
+  padding: 8px 12px;
+  margin-bottom: 2px;
+  margin-left: 8px;
+  margin-right: 8px;
+}
+
+.book:hover {
+  background-color: alpha(@theme_fg_color, 0.06);
+}
+
+.book:selected {
+  background-color: @accent_bg_color;
+  color: @accent_fg_color;
+  font-weight: bold;
+}
+
+.book-section {
+  font-size: 0.78em;
+  font-weight: bold;
+  color: @accent_color;
+  margin-top: 14px;
+  margin-bottom: 4px;
+  margin-left: 20px;
+  margin-right: 12px;
+}
+
+.chip {
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-weight: bold;
+  background-color: alpha(@theme_fg_color, 0.08);
+  border: none;
+}
+
+.chip:hover {
+  background-color: alpha(@theme_fg_color, 0.14);
+}
+
+.chip:checked {
+  background-color: @accent_bg_color;
+  color: @accent_fg_color;
+}
+
+/* Results ---------------------------------------------------------------- */
+
+.result {
+  border-radius: 12px;
+  padding: 8px 10px;
+  margin-bottom: 2px;
+  margin-left: 8px;
+  margin-right: 8px;
+}
+
+.result:hover {
+  background-color: alpha(@theme_fg_color, 0.06);
+}
+
+.result:selected {
+  background-color: @accent_bg_color;
+}
+
+.result-reference {
+  font-weight: bold;
+  color: @accent_color;
+}
+
+.result-snippet {
+  font-size: 0.85em;
+  color: alpha(@theme_fg_color, 0.65);
+}
+
+.result:selected .result-reference,
+.result:selected .result-snippet {
+  color: @accent_fg_color;
+}
+
+/* Reading pane ----------------------------------------------------------- */
+
+.title-1 {
+  font-size: 26pt;
+  font-weight: 800;
+  margin-bottom: 2px;
+}
+
+.eyebrow {
+  font-size: 0.78em;
+  font-weight: bold;
+  color: @accent_color;
+  margin-bottom: 4px;
+}
+
+.divider {
+  min-height: 1px;
+  background-color: alpha(@theme_fg_color, 0.12);
+}
+
+.verse {
+  border-radius: 12px;
+  padding: 5px 10px;
+  margin-bottom: 2px;
+}
+
+.verse:hover {
+  background-color: alpha(@theme_fg_color, 0.05);
+}
+
+.verse-number {
+  font-weight: bold;
+  color: @accent_color;
+}
+
+.verse-text {
+  font-weight: bold;
+}
+
+.verse.highlighted {
+  background-color: alpha(@accent_bg_color, 0.35);
+}
+
+.document-footer {
+  font-size: 0.8em;
+  color: alpha(@theme_fg_color, 0.55);
+}
