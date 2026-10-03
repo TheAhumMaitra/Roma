@@ -90,6 +90,11 @@ pub struct Book {
 }
 
 impl Book {
+    /// True in the New Testament, the only part where Jesus speaks in the text.
+    pub fn is_new_testament(&self) -> bool {
+        self.section == SECTION_NT
+    }
+
     pub fn verse_count(&self) -> usize {
         self.chapters.last().map_or(0, |c| c.end - self.first)
     }

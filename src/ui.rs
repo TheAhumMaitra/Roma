@@ -29,12 +29,18 @@ use gtk::{Application, gio, glib};
 use libadwaita as adw;
 use libadwaita::prelude::*;
 
-use crate::bible::{Bible, Hit, Query, Results, Verse};
+use crate::bible::{Bible, Book, Hit, Query, Results, Verse};
 
 const SEARCH_DELAY: Duration = Duration::from_millis(120);
-const SIDEBAR_WIDTH: i32 = 320;
-const READING_WIDTH: i32 = 660;
+const SIDEBAR_WIDTH: i32 = 264;
+/// Height of the chapter grid before it starts to scroll.
+const CHIPS_HEIGHT: i32 = 122;
+const READING_WIDTH: i32 = 720;
 const INVALID_POSITION: u32 = gtk::INVALID_LIST_POSITION;
+/// Said of him, coloured in every verse.
+const NAME: &str = "Jesus";
+/// The red of the stylesheet, for the spans that CSS cannot reach.
+const ACCENT: &str = "#ff4d45";
 
 /// A row of the book list: either a testament heading or a book.
 enum BookRow {
@@ -56,6 +62,7 @@ pub struct MainWindow {
     // Footer bar
     previous: gtk::Button,
     next: gtk::Button,
+    help_button: gtk::Button,
     footer: gtk::Label,
 
     // Sidebar
@@ -65,7 +72,7 @@ pub struct MainWindow {
     books_selection: gtk::SingleSelection,
     book_rows: RefCell<Vec<BookRow>>,
     chapter_chips: RefCell<Vec<gtk::ToggleButton>>,
-    chips_box: gtk::Box,
+    chips_box: gtk::FlowBox,
     results_heading: gtk::Label,
     results_stack: gtk::Stack,
     results_list: gtk::ListView,
@@ -86,6 +93,7 @@ pub struct MainWindow {
     book: Cell<u32>,
     chapter: Cell<u32>,
     highlighted: Cell<u32>,
+    help_window: RefCell<Option<adw::Window>>,
     /// Set while widgets are updated by code, to avoid feedback loops.
     syncing: Cell<bool>,
     search_timer: RefCell<Option<glib::SourceId>>,
@@ -124,8 +132,9 @@ impl MainWindow {
             sidebar_toggle: gtk::ToggleButton::new(),
             window_title: adw::WindowTitle::new("Roma", ""),
             search_entry: gtk::SearchEntry::new(),
-            previous: gtk::Button::from_icon_name("go-up-symbolic"),
-            next: gtk::Button::from_icon_name("go-down-symbolic"),
+            previous: gtk::Button::with_label("\u{f100}"),
+            next: gtk::Button::with_label("\u{f101}"),
+            help_button: gtk::Button::new(),
             footer: gtk::Label::new(None),
             stack: gtk::Stack::new(),
             books_list: gtk::ListView::new(
@@ -136,7 +145,7 @@ impl MainWindow {
             books_selection: gtk::SingleSelection::new(None::<gio::ListModel>),
             book_rows: RefCell::new(Vec::new()),
             chapter_chips: RefCell::new(Vec::new()),
-            chips_box: gtk::Box::new(gtk::Orientation::Horizontal, 6),
+            chips_box: gtk::FlowBox::new(),
             results_heading: gtk::Label::new(Some("Results")),
             results_stack: gtk::Stack::new(),
             results_list: gtk::ListView::new(
@@ -157,6 +166,7 @@ impl MainWindow {
             book: Cell::new(0),
             chapter: Cell::new(1),
             highlighted: Cell::new(0),
+            help_window: RefCell::new(None),
             syncing: Cell::new(false),
             search_timer: RefCell::new(None),
         });
@@ -179,6 +189,11 @@ impl MainWindow {
     pub fn chapter_title(&self) -> String {
         self.bible
             .chapter_reference(self.book.get(), self.chapter.get())
+    }
+
+    /// True for the New Testament, where the text carries the words of Jesus.
+    fn is_new_testament(&self, book: u32) -> bool {
+        self.bible.book(book).is_some_and(Book::is_new_testament)
     }
 
     /// Number of verses rendered for the current chapter.
@@ -268,18 +283,16 @@ impl MainWindow {
 
     fn build(self: &Rc<Self>) {
         let header = self.build_header();
-        let footer = self.build_footer();
         let sidebar = self.build_sidebar();
         let reader = self.build_reader();
 
         let toolbar = adw::ToolbarView::new();
         toolbar.add_top_bar(&header);
         toolbar.set_content(Some(&reader));
-        toolbar.add_bottom_bar(&footer);
 
         self.split.set_sidebar(Some(&sidebar));
         self.split.set_content(Some(&toolbar));
-        self.split.set_sidebar_width_fraction(0.32);
+        self.split.set_sidebar_width_fraction(0.26);
         self.split.set_vexpand(true);
 
         self.toast.set_child(Some(&self.split));
@@ -303,22 +316,25 @@ impl MainWindow {
         self.window_title.set_title("Roma");
         header.set_title_widget(Some(&self.window_title));
 
-        self.search_entry
-            .set_placeholder_text(Some("Search verses, or type John 3:16"));
-        self.search_entry.add_css_class("search-field");
-        self.search_entry.set_width_chars(22);
-        self.search_entry.set_margin_top(6);
-        self.search_entry.set_margin_bottom(6);
-        self.search_entry.set_margin_end(6);
-        header.pack_end(&self.search_entry);
+        self.help_button.set_icon_name("help-about-symbolic");
+        self.help_button
+            .set_tooltip_text(Some("About Roma (F1)"));
+        self.help_button.add_css_class("flat");
+        self.help_button
+            .set_action_name(Some("win.help"));
+        header.pack_end(&self.help_button);
+
+        for button in [&self.previous, &self.next] {
+            header.pack_end(button);
+        }
 
         let me = self.clone();
         self.sidebar_toggle
             .connect_toggled(move |toggle| me.set_sidebar(toggle.is_active()));
 
         for (button, step, tip, action) in [
-            (&self.previous, -1, "Previous chapter (Alt+Up, Left)", "previous-chapter"),
-            (&self.next, 1, "Next chapter (Alt+Down, Right)", "next-chapter"),
+            (&self.previous, -1, "Previous chapter (Left)", "previous-chapter"),
+            (&self.next, 1, "Next chapter (Right)", "next-chapter"),
         ] {
             button.set_tooltip_text(Some(tip));
             button.add_css_class("chapter-button");
@@ -329,6 +345,9 @@ impl MainWindow {
         }
 
         let me = self.clone();
+        self.search_entry
+            .set_placeholder_text(Some("Search, or type John 3:16"));
+        self.search_entry.add_css_class("search-field");
         self.search_entry
             .connect_search_changed(move |entry| me.on_search_changed(entry.text().as_str()));
         let me = self.clone();
@@ -343,23 +362,42 @@ impl MainWindow {
     fn build_sidebar(self: &Rc<Self>) -> gtk::Widget {
         let sidebar = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
+        self.search_entry.set_margin_top(10);
+        self.search_entry.set_margin_bottom(8);
+        self.search_entry.set_margin_start(12);
+        self.search_entry.set_margin_end(12);
+        sidebar.append(&self.search_entry);
+
         sidebar.append(&scroller(&self.books_list));
 
         sidebar.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
 
-        let chips_label = section_label("Chapters");
-        sidebar.append(&chips_label);
+        sidebar.append(&section_label("Chapters"));
 
+        self.chips_box.set_selection_mode(gtk::SelectionMode::None);
+        self.chips_box.set_homogeneous(false);
+        self.chips_box.set_column_spacing(6);
+        self.chips_box.set_row_spacing(6);
+        // Kept tight, so a book with 150 chapters cannot stretch the sidebar.
+        self.chips_box.set_min_children_per_line(3);
+        self.chips_box.set_max_children_per_line(4);
         self.chips_box.set_margin_top(2);
         self.chips_box.set_margin_bottom(12);
         self.chips_box.set_margin_start(12);
         self.chips_box.set_margin_end(12);
+
         let chips = gtk::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk::PolicyType::Automatic)
-            .vscrollbar_policy(gtk::PolicyType::Never)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::Automatic)
             .child(&self.chips_box)
             .build();
         chips.set_vexpand(false);
+        chips.add_css_class("chapters");
+        // The scrollbar sits beside the chips rather than over them, so it can
+        // never swallow a click on a chapter.
+        chips.set_overlay_scrolling(false);
+        chips.set_propagate_natural_height(true);
+        chips.set_max_content_height(CHIPS_HEIGHT);
         sidebar.append(&chips);
 
         self.results_heading.set_margin_top(12);
@@ -419,15 +457,19 @@ impl MainWindow {
             .set_description(Some("This passage has no text in this translation."));
         self.empty_page.set_vexpand(true);
 
+        self.footer.add_css_class("document-footer");
+        self.footer.set_margin_top(28);
+
         let document = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        document.set_margin_top(28);
-        document.set_margin_bottom(28);
-        document.set_margin_start(16);
-        document.set_margin_end(16);
+        document.set_margin_top(36);
+        document.set_margin_bottom(36);
+        document.set_margin_start(28);
+        document.set_margin_end(28);
         document.append(&self.eyebrow);
         document.append(&self.title);
         document.append(&self.divider);
         document.append(&self.verses);
+        document.append(&self.footer);
         document.append(&self.empty_page);
 
         let clamp = adw::Clamp::new();
@@ -443,22 +485,6 @@ impl MainWindow {
         let reader = gtk::Box::new(gtk::Orientation::Vertical, 0);
         reader.append(&self.scroller);
         reader.upcast()
-    }
-
-    /// The bottom bar: previous and next chapter, with where we are.
-    fn build_footer(self: &Rc<Self>) -> gtk::Widget {
-        self.footer.add_css_class("document-footer");
-        self.footer.set_hexpand(true);
-
-        let bar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        bar.set_margin_top(8);
-        bar.set_margin_bottom(10);
-        bar.set_margin_start(12);
-        bar.set_margin_end(12);
-        bar.append(&self.previous);
-        bar.append(&self.footer);
-        bar.append(&self.next);
-        bar.upcast()
     }
 
     fn init_lists(self: &Rc<Self>) {
@@ -502,7 +528,7 @@ impl MainWindow {
                 label.set_text(&reference);
             }
             if let Some(label) = row.last_child().and_downcast::<gtk::Label>() {
-                label.set_text(&snippet);
+                set_markup(&label, &snippet);
             }
         });
 
@@ -558,7 +584,7 @@ impl MainWindow {
             ("browser", ["F9"].as_slice()),
             ("next-chapter", ["<Alt>Down"].as_slice()),
             ("previous-chapter", ["<Alt>Up"].as_slice()),
-            ("about", ["F1"].as_slice()),
+            ("help", ["F1", "<Control>question"].as_slice()),
         ] {
             let action = gio::SimpleAction::new(name, None);
             let me = self.clone();
@@ -579,7 +605,7 @@ impl MainWindow {
             "browser" => self.set_sidebar(self.split.is_collapsed()),
             "next-chapter" => self.step_chapter(1),
             "previous-chapter" => self.step_chapter(-1),
-            "about" => self.show_about(),
+            "help" => self.show_help(),
             _ => {}
         }
     }
@@ -593,16 +619,22 @@ impl MainWindow {
         self.toast.add_toast(adw::Toast::new(&message.into()));
     }
 
-    fn show_about(&self) {
-        let about = adw::AboutDialog::builder()
-            .application_name("Roma")
-            .application_icon("view-book-symbolic")
-            .version(env!("CARGO_PKG_VERSION"))
-            .developer_name("Roma contributors")
-            .comments("A Bible reader for the desktop.")
-            .license_type(gtk::License::Gpl30)
-            .build();
-        about.present(Some(&self.window));
+    /// The help window, built once and shown again on every visit.
+    fn show_help(self: &Rc<Self>) {
+        if self.help_window.borrow().is_none() {
+            let window = crate::help::build(&self.window);
+            window.connect_close_request({
+                let me = self.clone();
+                move |_| {
+                    *me.help_window.borrow_mut() = None;
+                    glib::Propagation::Proceed
+                }
+            });
+            *self.help_window.borrow_mut() = Some(window);
+        }
+        if let Some(window) = self.help_window.borrow().as_ref() {
+            window.present();
+        }
     }
 
     // ------------------------------------------------------------------ lists
@@ -738,26 +770,32 @@ impl MainWindow {
         self.window_title.set_subtitle(&section);
 
         let mut shown = 0;
-        for verse in self
+        let verses = self
             .bible
             .chapter_verses(book, chapter)
             .iter()
             .filter(|verse| !verse.text.is_empty())
-        {
-            self.verses.append(&self.verse_row(verse));
+            .collect::<Vec<_>>();
+        let texts = verses
+            .iter()
+            .map(|verse| verse.text.as_str())
+            .collect::<Vec<_>>();
+        let speaking = jesus_speaks(&texts, self.is_new_testament(book));
+        for (verse, speaks) in verses.iter().zip(speaking) {
+            self.verses.append(&self.verse_row(verse, speaks));
             shown += 1;
         }
 
         self.empty_page.set_visible(shown == 0);
         self.divider.set_visible(shown > 0);
         self.footer.set_text(&format!(
-            "{title} \u{b7} {shown} verse{}",
+            "{shown} verse{} \u{b7} {section}",
             plural(shown)
         ));
     }
 
-    fn verse_row(&self, verse: &Verse) -> gtk::Box {
-        let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    fn verse_row(&self, verse: &Verse, speaks: bool) -> gtk::Box {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
         row.add_css_class("verse");
 
         let number = gtk::Label::new(Some(&verse.number.to_string()));
@@ -765,8 +803,13 @@ impl MainWindow {
         number.set_xalign(1.0);
         number.set_width_chars(3);
 
-        let text = gtk::Label::new(Some(&verse.text));
+        let text = gtk::Label::new(None);
+        set_markup(&text, &verse.text);
         text.add_css_class("verse-text");
+        // The words of Jesus, in the red of the stylesheet.
+        if speaks {
+            text.add_css_class("speaks");
+        }
         text.set_wrap(true);
         text.set_hexpand(true);
         text.set_xalign(0.0);
@@ -912,6 +955,169 @@ impl MainWindow {
     }
 }
 
+/// Shows a label's text with every mention of Jesus in red and bold.
+fn set_markup(label: &gtk::Label, text: &str) {
+    label.set_markup(&markup(text));
+}
+
+/// Marks up `text`, colouring every mention of Jesus.
+fn markup(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len() + 32);
+    let mut plain = String::new();
+    let mut index = 0;
+
+    while index < chars.len() {
+        let start = index;
+        let end = index + NAME.len();
+        let said = end <= chars.len()
+            && chars[start..end]
+                .iter()
+                .collect::<String>()
+                .eq_ignore_ascii_case(NAME)
+            && (start == 0 || !chars[start - 1].is_alphanumeric())
+            && (end == chars.len() || !chars[end].is_alphanumeric());
+        if said {
+            if !plain.is_empty() {
+                out.push_str(&glib::markup_escape_text(&plain));
+                plain.clear();
+            }
+            out.push_str(&format!(
+                "<span foreground=\"{ACCENT}\" weight=\"bold\">{NAME}</span>"
+            ));
+            index = end;
+        } else {
+            plain.push(chars[index]);
+            index += 1;
+        }
+    }
+
+    if !plain.is_empty() {
+        out.push_str(&glib::markup_escape_text(&plain));
+    }
+    out
+}
+
+// ------------------------------------------------------- who is speaking
+
+/// Verbs that introduce what somebody says.
+const SPEAKS: &[&str] = &[
+    "said", "says", "say", "answered", "responded", "replied", "spoke", "cried", "asked",
+    "told", "preached", "proclaimed", "commanded", "instructed", "explained", "exclaimed",
+    "taught",
+];
+
+/// Words Jesus uses of himself, where no verb names him as the speaker.
+const FIRST_PERSON: &[&[&str]] = &[
+    &["i", "say", "to", "you"],
+    &["i", "say", "unto", "you"],
+    &["i", "tell", "you"],
+    &["i", "have", "said"],
+    &["i", "have", "spoken"],
+    &["i", "give", "you"],
+    &["amen", "amen"],
+    &["i", "am", "the", "way"],
+    &["i", "am", "the", "bread"],
+    &["i", "am", "the", "light"],
+    &["i", "have", "come"],
+];
+
+/// Words between the speaker and their verb, such as "and the Lord of hosts".
+const CONNECTIVES: &[&str] = &[
+    "and", "the", "a", "an", "of", "to", "with", "then", "but", "so", "that", "which", "who",
+    "himself", "him", "them", "unto", "upon", "as", "at", "in", "for", "by", "from", "it", "is",
+    "was", "were", "there", "also", "even", "thus", "while", "when", "truly", "if",
+];
+
+/// True for each verse in a chapter: is this the speech of Jesus?
+///
+/// The text carries no speaker of its own, so the verses are read in order and
+/// followed: a verb naming Jesus, or the first person of the New Testament,
+/// begins his speech; a quotation he opened stays his until it is closed; and
+/// anyone else taking the floor, or a book before the New Testament, ends it.
+fn jesus_speaks(chapter: &[&str], new_testament: bool) -> Vec<bool> {
+    let mut flags = Vec::with_capacity(chapter.len());
+    let mut speaking = false;
+    let mut quoted = false;
+
+    for text in chapter {
+        let words = words_of(text);
+        let subject = speaker_of(&words);
+        let his = match subject {
+            Some(subject) => is_him(subject, new_testament) && !speaks_to_him(&words),
+            None => false,
+        };
+        let cue = his || says_of_himself(&words);
+        let hands_over =
+            subject.is_some_and(|subject| !is_him(subject, new_testament)) && speaks(&words);
+        let opens = text.matches('\u{201c}').count();
+        let closes = text.matches('\u{201d}').count();
+        let ends = closes > opens;
+
+        let here = cue || quoted || new_testament && speaking && subject.is_none();
+        if opens > closes {
+            quoted = cue || new_testament && speaking && !hands_over;
+        } else if ends {
+            quoted = false;
+        }
+        speaking = here && !hands_over && !ends;
+
+        flags.push(here);
+    }
+
+    flags
+}
+
+/// Splits a verse into lowercased words, dropping punctuation and quotes.
+fn words_of(text: &str) -> Vec<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// True when the verse carries a verb of speech.
+fn speaks(words: &[String]) -> bool {
+    words.iter().any(|word| SPEAKS.contains(&word.as_str()))
+}
+
+/// True when Jesus is named in the verse.
+fn names_him(words: &[String]) -> bool {
+    words.iter().any(|word| word == NAME || word == "christ")
+}
+
+/// The word in front of the first verb of speech: who the words belong to.
+fn speaker_of(words: &[String]) -> Option<&str> {
+    let verb = words.iter().position(|word| SPEAKS.contains(&word.as_str()))?;
+    words[..verb]
+        .iter()
+        .rev()
+        .find(|word| !CONNECTIVES.contains(&word.as_str()))
+        .map(String::as_str)
+}
+
+/// True when `subject` is Jesus: his name, or the narrator's "he" and "I".
+fn is_him(subject: &str, new_testament: bool) -> bool {
+    matches!(subject, NAME | "christ") || new_testament && matches!(subject, "he" | "i")
+}
+
+/// True when the words are addressed to Jesus, so the speaker is someone else.
+fn speaks_to_him(words: &[String]) -> bool {
+    names_him(words)
+        && words
+            .windows(2)
+            .any(|pair| pair == ["to", "him"] || pair == ["to", "them"])
+}
+
+/// True when Jesus speaks of himself: "Amen, amen, I say to you".
+fn says_of_himself(words: &[String]) -> bool {
+    FIRST_PERSON.iter().any(|phrase| {
+        words
+            .windows(phrase.len())
+            .any(|window| window.iter().map(String::as_str).eq(phrase.iter().copied()))
+    })
+}
+
 fn plural(count: usize) -> &'static str {
     if count == 1 { "" } else { "s" }
 }
@@ -981,4 +1187,81 @@ fn scroller(list: &gtk::ListView) -> gtk::ScrolledWindow {
         .vexpand(true)
         .child(list)
         .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{jesus_speaks, markup};
+
+    const RED: &str = "<span foreground=\"#ff4d45\" weight=\"bold\">Jesus</span>";
+
+    #[test]
+    fn marks_the_name_wherever_it_is_said() {
+        assert_eq!(markup("Jesus wept."), format!("{RED} wept."));
+        assert_eq!(markup("They saw Jesus, and feared."), format!("They saw {RED}, and feared."));
+        assert_eq!(markup("of jesus"), format!("of {RED}"));
+        assert_eq!(markup("JESUS"), RED);
+    }
+
+    #[test]
+    fn leaves_other_uses_of_the_letters_alone() {
+        assert_eq!(markup("Jesusalpha, jesusling"), "Jesusalpha, jesusling");
+    }
+
+    #[test]
+    fn escapes_the_rest_of_the_text() {
+        assert_eq!(
+            markup("Jesus said: \"God & Son\""),
+            format!("{RED} said: &quot;God &amp; Son&quot;")
+        );
+    }
+
+    fn speaks_of(lines: &[&str], new_testament: bool) -> Vec<bool> {
+        jesus_speaks(lines, new_testament)
+    }
+
+    #[test]
+    fn reds_the_verses_where_jesus_speaks() {
+        assert_eq!(
+            speaks_of(
+                &[
+                    "Then there was a man among the Pharisees, named Nicodemus.",
+                    "Jesus responded and said to him, \u{201c}Amen, amen, I say to you.\u{201d}",
+                    "Nicodemus said to him: \u{201c}How can this be?\u{201d}",
+                ],
+                true,
+            ),
+            vec![false, true, false]
+        );
+    }
+
+    #[test]
+    fn follows_a_quotation_until_it_is_closed() {
+        assert_eq!(
+            speaks_of(
+                &[
+                    "And opening his mouth, he taught them, saying:",
+                    "\u{201c}Blessed are the poor in spirit, for theirs is the kingdom.",
+                    "Blessed are the meek, for they shall possess the earth.\u{201d}",
+                    "And he went up the mountain.",
+                ],
+                true,
+            ),
+            vec![true, true, true, false]
+        );
+    }
+
+    #[test]
+    fn leaves_others_to_their_own_words() {
+        assert_eq!(
+            speaks_of(
+                &[
+                    "And the Lord answered the angel, who had been speaking with me.",
+                    "And he said to me: Cry out, saying: Thus says the Lord of hosts.",
+                ],
+                false,
+            ),
+            vec![false, false]
+        );
+    }
 }
