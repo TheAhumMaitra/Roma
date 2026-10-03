@@ -27,3 +27,6 @@ cd Roma && cargo install --path .
 
 # License
 GPL-3.0-or-later
+
+# Credits
+Thanks to [`Bible databases`](https://github.com/scrollmapper/bible_databases/tree/master) for the wonderful whole `CPDV` BIBLE json file.
