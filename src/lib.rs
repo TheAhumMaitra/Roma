@@ -22,12 +22,14 @@
 
 pub mod bible;
 pub mod help;
+pub mod store;
 pub mod ui;
 
 use std::path::{Path, PathBuf};
 
 pub use bible::{Bible, Hit, Query, Results, Verse};
 pub use help::present as show_help;
+pub use store::Favourites;
 pub use ui::{MainWindow, STYLE, load_style};
 
 /// File name of the bible text shipped in `sources/`.

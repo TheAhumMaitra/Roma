@@ -224,10 +224,27 @@ impl Bible {
     }
 
     pub fn chapter_verses(&self, book: u32, chapter: u32) -> &[Verse] {
-        match self.books.get(book as usize).and_then(|b| b.chapter(chapter)) {
+        match self
+            .books
+            .get(book as usize)
+            .and_then(|b| b.chapter(chapter))
+        {
             Some(chapter) => &self.verses[chapter.start..chapter.end],
             None => &[],
         }
+    }
+
+    /// The words of one verse, if the translation has them.
+    pub fn verse_text(&self, book: u32, chapter: u32, verse: u32) -> Option<&str> {
+        self.chapter_verses(book, chapter)
+            .iter()
+            .find(|candidate| candidate.number == verse && !candidate.text.is_empty())
+            .map(|found| found.text.as_str())
+    }
+
+    /// The index of a book by its name, as saved in favourites.
+    pub fn book_index(&self, name: &str) -> u32 {
+        self.find_book(name).unwrap_or(u32::MAX)
     }
 
     pub fn chapter_has_text(&self, book: u32, chapter: u32) -> bool {
@@ -415,7 +432,9 @@ impl Bible {
 fn is_number_spec(word: &str) -> bool {
     !word.is_empty()
         && word.chars().any(|c| c.is_ascii_digit())
-        && word.chars().all(|c| c.is_ascii_digit() || matches!(c, ':' | '-' | ','))
+        && word
+            .chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, ':' | '-' | ','))
 }
 
 /// Reads `3`, `3:16`, `3:16-18` and `3:16,18` style chapter and verse lists.
@@ -553,13 +572,11 @@ fn book_candidates(query: &str) -> Vec<String> {
 }
 
 fn strip_roman(normalized: &str) -> Option<&str> {
-    ["iii", "ii", "i"]
-        .into_iter()
-        .find_map(|roman| {
-            normalized
-                .strip_prefix(roman)
-                .filter(|rest| rest.starts_with(|c: char| c.is_ascii_alphabetic()))
-        })
+    ["iii", "ii", "i"].into_iter().find_map(|roman| {
+        normalized
+            .strip_prefix(roman)
+            .filter(|rest| rest.starts_with(|c: char| c.is_ascii_alphabetic()))
+    })
 }
 
 fn normalize(text: &str) -> String {
@@ -682,7 +699,11 @@ mod tests {
         assert!(results.reference);
         assert_eq!(results.total, 2);
         assert_eq!(
-            (results.hits[1].book, results.hits[1].chapter, results.hits[1].verse),
+            (
+                results.hits[1].book,
+                results.hits[1].chapter,
+                results.hits[1].verse
+            ),
             (5, 3, 17)
         );
     }
@@ -693,7 +714,11 @@ mod tests {
         assert!(!results.reference);
         assert_eq!(results.total, 1);
         assert_eq!(
-            (results.hits[0].book, results.hits[0].chapter, results.hits[0].verse),
+            (
+                results.hits[0].book,
+                results.hits[0].chapter,
+                results.hits[0].verse
+            ),
             (5, 3, 16)
         );
     }
@@ -726,7 +751,11 @@ mod tests {
         let text = bible();
         assert_eq!(passage("mark 1"), (4, vec![1], None));
         assert!(text.chapter_verses(4, 1).is_empty());
-        assert!(text.search(&text.parse_query("mark 1").unwrap()).hits.is_empty());
+        assert!(
+            text.search(&text.parse_query("mark 1").unwrap())
+                .hits
+                .is_empty()
+        );
         assert!(text.chapter_has_text(5, 3));
     }
 
@@ -738,7 +767,10 @@ mod tests {
             text: "The LORD is my shepherd; I shall not want.".to_string(),
             lowered: "the lord is my shepherd; i shall not want.".to_string(),
         };
-        assert_eq!(make_snippet(&verse, &words), "The LORD is my shepherd; I shall not want.");
+        assert_eq!(
+            make_snippet(&verse, &words),
+            "The LORD is my shepherd; I shall not want."
+        );
 
         let words = vec!["want".to_string()];
         assert!(make_snippet(&verse, &words).starts_with('…'));

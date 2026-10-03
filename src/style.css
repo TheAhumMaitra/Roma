@@ -31,6 +31,10 @@ window {
   --roma-hover: #161616;
   --roma-pick: #1c1c1c;
   --roma-pick-line: #ececec;
+  /* Favourites keep to themselves, in gold rather than red. */
+  --roma-keep: #191510;
+  --roma-keep-line: #d9a441;
+  --roma-gold: #e8b464;
 }
 
 @define-color window_bg_color #000000;
@@ -336,4 +340,68 @@ button.flat,
   line-height: 1.45;
   color: var(--roma-dim);
   padding: 12px 14px;
+}
+
+/* Favourites ------------------------------------------------------------- */
+
+.verse.favourite {
+  background-color: var(--roma-keep);
+  box-shadow: inset 2px 0 0 var(--roma-keep-line);
+}
+
+.verse.selected {
+  background-color: var(--roma-pick);
+}
+
+.verse.selected .verse-number {
+  color: var(--roma-fg);
+  opacity: 1;
+}
+
+/* The star, bottom right of the reading pane. */
+.verse-tools {
+  background-color: var(--roma-raise);
+  border: 1px solid var(--roma-line);
+  border-radius: 999px;
+  padding: 4px 6px 4px 14px;
+}
+
+.verse-tools-reference {
+  font-size: 9pt;
+  color: var(--roma-dim);
+}
+
+.verse-tools-button {
+  min-width: 26px;
+  min-height: 26px;
+  padding: 3px;
+  border-radius: 999px;
+  color: var(--roma-dim);
+}
+
+.verse-tools-button:hover {
+  background-color: var(--roma-hover);
+  color: var(--roma-fg);
+}
+
+.verse-tools-button:last-child {
+  color: var(--roma-gold);
+}
+
+.verse-tools-button:last-child:hover {
+  color: #ffd591;
+}
+
+.verse-note-text {
+  font-size: 9pt;
+  line-height: 1.45;
+  color: var(--roma-gold);
+  padding: 2px 8px 2px 0;
+  border-left: 2px solid var(--roma-keep-line);
+}
+
+.note-view {
+  font-size: 10pt;
+  color: var(--roma-fg);
+  background-color: var(--roma-raise);
 }

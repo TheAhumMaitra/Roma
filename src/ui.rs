@@ -30,6 +30,7 @@ use libadwaita as adw;
 use libadwaita::prelude::*;
 
 use crate::bible::{Bible, Book, Hit, Query, Results, Verse};
+use crate::store;
 
 const SEARCH_DELAY: Duration = Duration::from_millis(120);
 const SIDEBAR_WIDTH: i32 = 264;
@@ -37,6 +38,8 @@ const SIDEBAR_WIDTH: i32 = 264;
 const CHIPS_HEIGHT: i32 = 122;
 const READING_WIDTH: i32 = 720;
 const INVALID_POSITION: u32 = gtk::INVALID_LIST_POSITION;
+/// No verse picked.
+const NO_VERSE: u32 = 0;
 /// Said of him, coloured in every verse.
 const NAME: &str = "Jesus";
 /// The red of the stylesheet, for the spans that CSS cannot reach.
@@ -81,6 +84,23 @@ pub struct MainWindow {
     results_empty: adw::StatusPage,
     results: RefCell<Vec<Hit>>,
 
+    // Favourites
+    favourites: store::Favourites,
+    favourites_button: gtk::Button,
+    favourites_heading: gtk::Label,
+    favourites_stack: gtk::Stack,
+    favourites_list: gtk::ListView,
+    favourites_model: gio::ListStore,
+    favourites_selection: gtk::SingleSelection,
+    favourites_rows: RefCell<Vec<store::Favourite>>,
+    favourites_empty: adw::StatusPage,
+
+    // The one place to keep or annotate the verse that is picked
+    tools_revealer: gtk::Revealer,
+    tools_reference: gtk::Label,
+    tools_star: gtk::Button,
+    tools_note: gtk::Button,
+
     // Reading pane
     eyebrow: gtk::Label,
     title: gtk::Label,
@@ -93,6 +113,7 @@ pub struct MainWindow {
     book: Cell<u32>,
     chapter: Cell<u32>,
     highlighted: Cell<u32>,
+    selected_verse: Cell<u32>,
     help_window: RefCell<Option<adw::Window>>,
     /// Set while widgets are updated by code, to avoid feedback loops.
     syncing: Cell<bool>,
@@ -117,6 +138,16 @@ pub fn load_style() {
 
 impl MainWindow {
     pub fn new(app: &Application, bible: Rc<Bible>) -> Rc<Self> {
+        Self::with_favourites(app, bible, store::Favourites::load_default())
+    }
+
+    /// As `new`, with a list of favourites from somewhere else. Tests use this
+    /// to keep their verses out of the reader's own data.
+    pub fn with_favourites(
+        app: &Application,
+        bible: Rc<Bible>,
+        favourites: store::Favourites,
+    ) -> Rc<Self> {
         let window = adw::ApplicationWindow::builder()
             .application(app)
             .title("Roma")
@@ -156,6 +187,22 @@ impl MainWindow {
             results_selection: gtk::SingleSelection::new(None::<gio::ListModel>),
             results_empty: adw::StatusPage::new(),
             results: RefCell::new(Vec::new()),
+            favourites,
+            favourites_button: gtk::Button::new(),
+            favourites_heading: gtk::Label::new(Some("Favourites")),
+            favourites_stack: gtk::Stack::new(),
+            favourites_list: gtk::ListView::new(
+                None::<gtk::SingleSelection>,
+                None::<gtk::SignalListItemFactory>,
+            ),
+            favourites_model: gio::ListStore::new::<gtk::StringObject>(),
+            favourites_selection: gtk::SingleSelection::new(None::<gio::ListModel>),
+            favourites_rows: RefCell::new(Vec::new()),
+            favourites_empty: adw::StatusPage::new(),
+            tools_revealer: gtk::Revealer::new(),
+            tools_reference: gtk::Label::new(None),
+            tools_star: gtk::Button::new(),
+            tools_note: gtk::Button::new(),
             eyebrow: gtk::Label::new(None),
             title: gtk::Label::new(None),
             divider: gtk::Box::new(gtk::Orientation::Horizontal, 0),
@@ -166,6 +213,7 @@ impl MainWindow {
             book: Cell::new(0),
             chapter: Cell::new(1),
             highlighted: Cell::new(0),
+            selected_verse: Cell::new(NO_VERSE),
             help_window: RefCell::new(None),
             syncing: Cell::new(false),
             search_timer: RefCell::new(None),
@@ -316,12 +364,18 @@ impl MainWindow {
         self.window_title.set_title("Roma");
         header.set_title_widget(Some(&self.window_title));
 
+        self.favourites_button.set_icon_name("starred-symbolic");
+        self.favourites_button
+            .set_tooltip_text(Some("Favourites and notes"));
+        self.favourites_button.add_css_class("flat");
+        self.favourites_button
+            .set_action_name(Some("win.favourites"));
+        header.pack_start(&self.favourites_button);
+
         self.help_button.set_icon_name("help-about-symbolic");
-        self.help_button
-            .set_tooltip_text(Some("About Roma (F1)"));
+        self.help_button.set_tooltip_text(Some("About Roma (F1)"));
         self.help_button.add_css_class("flat");
-        self.help_button
-            .set_action_name(Some("win.help"));
+        self.help_button.set_action_name(Some("win.help"));
         header.pack_end(&self.help_button);
 
         for button in [&self.previous, &self.next] {
@@ -333,7 +387,12 @@ impl MainWindow {
             .connect_toggled(move |toggle| me.set_sidebar(toggle.is_active()));
 
         for (button, step, tip, action) in [
-            (&self.previous, -1, "Previous chapter (Left)", "previous-chapter"),
+            (
+                &self.previous,
+                -1,
+                "Previous chapter (Left)",
+                "previous-chapter",
+            ),
             (&self.next, 1, "Next chapter (Right)", "next-chapter"),
         ] {
             button.set_tooltip_text(Some(tip));
@@ -425,8 +484,35 @@ impl MainWindow {
         results.append(&self.results_heading);
         results.append(&self.results_stack);
 
+        self.favourites_heading.set_margin_top(12);
+        self.favourites_heading.set_margin_bottom(4);
+        self.favourites_heading.set_margin_start(16);
+        self.favourites_heading.set_margin_end(16);
+        self.favourites_heading.add_css_class("sidebar-heading");
+        self.favourites_heading.set_xalign(0.0);
+
+        self.favourites_empty
+            .set_icon_name(Some("starred-symbolic"));
+        self.favourites_empty.set_title("No favourites yet");
+        self.favourites_empty.set_description(Some(
+            "Star a verse while you read, and it waits for you here.",
+        ));
+        self.favourites_empty.set_vexpand(true);
+
+        self.favourites_stack
+            .add_named(&scroller(&self.favourites_list), Some("list"));
+        self.favourites_stack
+            .add_named(&self.favourites_empty, Some("empty"));
+        self.favourites_stack.set_visible_child_name("list");
+        self.favourites_stack.set_vexpand(true);
+
+        let favourites = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        favourites.append(&self.favourites_heading);
+        favourites.append(&self.favourites_stack);
+
         self.stack.add_named(&sidebar, Some("browser"));
         self.stack.add_named(&results, Some("results"));
+        self.stack.add_named(&favourites, Some("favourites"));
         self.stack.set_visible_child_name("browser");
         self.stack.set_vexpand(true);
 
@@ -482,8 +568,45 @@ impl MainWindow {
         self.scroller.set_vexpand(true);
         self.scroller.set_child(Some(&clamp));
 
+        // Where a picked verse is kept or annotated: one star, bottom right.
+        self.tools_reference.add_css_class("verse-tools-reference");
+        self.tools_reference.set_xalign(0.0);
+        self.tools_reference.set_margin_end(4);
+
+        self.tools_star.add_css_class("verse-tools-button");
+        self.tools_star.connect_clicked({
+            let me = self.clone();
+            move |_| me.toggle_favourite()
+        });
+
+        self.tools_note.set_icon_name("document-edit-symbolic");
+        self.tools_note.add_css_class("verse-tools-button");
+        self.tools_note
+            .set_tooltip_text(Some("Write a note on this verse"));
+        self.tools_note.connect_clicked({
+            let me = self.clone();
+            move |_| me.edit_note()
+        });
+
+        let tools = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        tools.add_css_class("verse-tools");
+        tools.set_halign(gtk::Align::End);
+        tools.set_margin_end(24);
+        tools.set_margin_top(6);
+        tools.set_margin_bottom(14);
+        tools.append(&self.tools_reference);
+        tools.append(&self.tools_note);
+        tools.append(&self.tools_star);
+
+        self.tools_revealer.set_child(Some(&tools));
+        self.tools_revealer
+            .set_transition_type(gtk::RevealerTransitionType::Crossfade);
+        self.tools_revealer.set_transition_duration(120);
+        self.tools_revealer.set_reveal_child(false);
+
         let reader = gtk::Box::new(gtk::Orientation::Vertical, 0);
         reader.append(&self.scroller);
+        reader.append(&self.tools_revealer);
         reader.upcast()
     }
 
@@ -505,6 +628,38 @@ impl MainWindow {
             label.set_css_classes(&[class]);
             label.set_text(&row_text(item));
         });
+
+        let favourites_factory = gtk::SignalListItemFactory::new();
+        favourites_factory.connect_setup(|_, item| setup_result_row(item));
+        let me = self.clone();
+        favourites_factory.connect_bind(move |_, item| {
+            let me = me.clone();
+            let (reference, note) = {
+                let rows = me.favourites_rows.borrow();
+                let Some(row) = rows.get(item.position() as usize) else {
+                    return;
+                };
+                let note = if row.note.is_empty() {
+                    me.bible
+                        .verse_text(me.bible.book_index(&row.book), row.chapter, row.verse)
+                        .unwrap_or_default()
+                        .to_string()
+                } else {
+                    row.note.clone()
+                };
+                (row.reference(), note)
+            };
+            let Some(row) = item.child().and_downcast::<gtk::Box>() else {
+                return;
+            };
+            if let Some(label) = row.first_child().and_downcast::<gtk::Label>() {
+                label.set_text(&reference);
+            }
+            if let Some(label) = row.last_child().and_downcast::<gtk::Label>() {
+                label.set_text(&note);
+            }
+        });
+        self.favourites_list.set_factory(Some(&favourites_factory));
 
         let results_factory = gtk::SignalListItemFactory::new();
         results_factory.connect_setup(|_, item| setup_result_row(item));
@@ -540,6 +695,13 @@ impl MainWindow {
         self.results_selection.set_can_unselect(false);
         self.results_list.set_model(Some(&self.results_selection));
         self.results_list.set_factory(Some(&results_factory));
+
+        self.favourites_selection
+            .set_model(Some(&self.favourites_model));
+        self.favourites_selection.set_can_unselect(false);
+        self.favourites_list
+            .set_model(Some(&self.favourites_selection));
+        self.favourites_list.set_factory(Some(&favourites_factory));
     }
 
     fn connect_signals(self: &Rc<Self>) {
@@ -558,6 +720,13 @@ impl MainWindow {
             });
 
         let me = self.clone();
+        self.favourites_selection
+            .connect_selected_notify(move |selection| {
+                let me = me.clone();
+                me.on_favourite_selected(selection.selected());
+            });
+
+        let me = self.clone();
         self.split.connect_collapsed_notify(move |split| {
             let me = me.clone();
             me.sidebar_toggle.set_active(!split.is_collapsed());
@@ -573,6 +742,7 @@ impl MainWindow {
             match key {
                 gtk::gdk::Key::Left | gtk::gdk::Key::KP_Left => me.step_chapter(-1),
                 gtk::gdk::Key::Right | gtk::gdk::Key::KP_Right => me.step_chapter(1),
+                gtk::gdk::Key::Escape => me.select_verse(NO_VERSE),
                 _ => return glib::Propagation::Proceed,
             }
             glib::Propagation::Stop
@@ -585,6 +755,7 @@ impl MainWindow {
             ("next-chapter", ["<Alt>Down"].as_slice()),
             ("previous-chapter", ["<Alt>Up"].as_slice()),
             ("help", ["F1", "<Control>question"].as_slice()),
+            ("favourites", ["<Control>d"].as_slice()),
         ] {
             let action = gio::SimpleAction::new(name, None);
             let me = self.clone();
@@ -606,6 +777,7 @@ impl MainWindow {
             "next-chapter" => self.step_chapter(1),
             "previous-chapter" => self.step_chapter(-1),
             "help" => self.show_help(),
+            "favourites" => self.show_favourites(),
             _ => {}
         }
     }
@@ -617,6 +789,16 @@ impl MainWindow {
 
     fn notify(&self, message: impl Into<String>) {
         self.toast.add_toast(adw::Toast::new(&message.into()));
+    }
+
+    /// The saved favourites, for callers that want to read or write them.
+    pub fn favourites(&self) -> &store::Favourites {
+        &self.favourites
+    }
+
+    /// Draws the chapter that is open again, as if it had just been opened.
+    pub fn reopen(self: &Rc<Self>) {
+        self.render_chapter(self.book.get(), self.chapter.get());
     }
 
     /// The help window, built once and shown again on every visit.
@@ -750,7 +932,7 @@ impl MainWindow {
         }
     }
 
-    fn render_chapter(&self, book: u32, chapter: u32) {
+    fn render_chapter(self: &Rc<Self>, book: u32, chapter: u32) {
         while let Some(child) = self.verses.first_child() {
             self.verses.remove(&child);
         }
@@ -781,27 +963,38 @@ impl MainWindow {
             .map(|verse| verse.text.as_str())
             .collect::<Vec<_>>();
         let speaking = jesus_speaks(&texts, self.is_new_testament(book));
+        let book_name = self
+            .bible
+            .book(book)
+            .map_or("", |book| book.name.as_str())
+            .to_string();
         for (verse, speaks) in verses.iter().zip(speaking) {
-            self.verses.append(&self.verse_row(verse, speaks));
+            self.verses
+                .append(&self.verse_row(verse, speaks, &book_name, chapter));
             shown += 1;
         }
 
         self.empty_page.set_visible(shown == 0);
         self.divider.set_visible(shown > 0);
-        self.footer.set_text(&format!(
-            "{shown} verse{} \u{b7} {section}",
-            plural(shown)
-        ));
+        self.footer
+            .set_text(&format!("{shown} verse{} \u{b7} {section}", plural(shown)));
+        self.update_picked();
     }
 
-    fn verse_row(&self, verse: &Verse, speaks: bool) -> gtk::Box {
+    fn verse_row(
+        self: &Rc<Self>,
+        verse: &Verse,
+        speaks: bool,
+        book_name: &str,
+        chapter: u32,
+    ) -> gtk::Box {
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
         row.add_css_class("verse");
 
-        let number = gtk::Label::new(Some(&verse.number.to_string()));
-        number.add_css_class("verse-number");
-        number.set_xalign(1.0);
-        number.set_width_chars(3);
+        let label = gtk::Label::new(Some(&verse.number.to_string()));
+        label.add_css_class("verse-number");
+        label.set_xalign(1.0);
+        label.set_width_chars(3);
 
         let text = gtk::Label::new(None);
         set_markup(&text, &verse.text);
@@ -811,16 +1004,265 @@ impl MainWindow {
             text.add_css_class("speaks");
         }
         text.set_wrap(true);
-        text.set_hexpand(true);
         text.set_xalign(0.0);
         text.set_selectable(true);
 
-        row.append(&number);
-        row.append(&text);
+        // The words, and the note underneath them when there is one.
+        let column = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        column.set_hexpand(true);
+        column.append(&text);
+
+        let number = verse.number;
+        let starred = self.favourites.has(book_name, chapter, number);
+        if starred {
+            row.add_css_class("favourite");
+            if let Some(note) = self.favourites.note(book_name, chapter, number) {
+                let note = gtk::Label::new(Some(&note));
+                note.add_css_class("verse-note-text");
+                note.set_xalign(0.0);
+                note.set_wrap(true);
+                note.set_selectable(true);
+                column.append(&note);
+            }
+        }
+
+        // A click picks the verse; the tools come up at the bottom of the pane.
+        // Dragging across the text is left alone, so words can still be copied.
+        let click = gtk::GestureClick::new();
+        click.set_button(gtk::gdk::BUTTON_PRIMARY);
+        let pressed_at = Rc::new(Cell::new((0.0f64, 0.0f64)));
+        let origin = pressed_at.clone();
+        click.connect_pressed(move |_, _, x, y| origin.set((x, y)));
+        let me = self.clone();
+        click.connect_released(move |_, presses, x, y| {
+            let (start_x, start_y) = pressed_at.get();
+            let dragged = (x - start_x).abs() > 4.0 || (y - start_y).abs() > 4.0;
+            if presses == 1 && !dragged {
+                me.select_verse(number);
+            }
+        });
+        row.add_controller(click);
+
+        row.append(&label);
+        row.append(&column);
         self.verse_rows
             .borrow_mut()
             .insert(verse.number, row.clone());
         row
+    }
+
+    // ------------------------------------------------------------ favourites
+
+    /// Picks a verse, or puts it down again if it was already picked. The
+    /// tools come up at the bottom right while a verse is picked.
+    pub fn select_verse(self: &Rc<Self>, verse: u32) {
+        let picked = if self.selected_verse.get() == verse {
+            NO_VERSE
+        } else {
+            verse
+        };
+        self.selected_verse.set(picked);
+        self.update_picked();
+    }
+
+    /// The verse that is picked, with the book and chapter it sits in.
+    fn picked(&self) -> Option<(u32, u32, u32)> {
+        let verse = self.selected_verse.get();
+        if verse == NO_VERSE || !self.verse_rows.borrow().contains_key(&verse) {
+            return None;
+        }
+        Some((self.book.get(), self.chapter.get(), verse))
+    }
+
+    /// Marks the picked row, and fills the tools: they follow every redraw.
+    fn update_picked(&self) {
+        let rows = self.verse_rows.borrow();
+        for (number, row) in rows.iter() {
+            if *number == self.selected_verse.get() {
+                row.add_css_class("selected");
+            } else {
+                row.remove_css_class("selected");
+            }
+        }
+        drop(rows);
+
+        let Some((book, chapter, verse)) = self.picked() else {
+            self.tools_revealer.set_reveal_child(false);
+            return;
+        };
+        let name = self
+            .bible
+            .book(book)
+            .map_or("", |book| book.name.as_str())
+            .to_string();
+        self.tools_reference
+            .set_text(&format!("{name} {chapter}:{verse}"));
+        let starred = self.favourites.has(&name, chapter, verse);
+        self.tools_star.set_icon_name(if starred {
+            "starred-symbolic"
+        } else {
+            "non-starred-symbolic"
+        });
+        self.tools_star.set_tooltip_text(Some(if starred {
+            "Remove from favourites"
+        } else {
+            "Keep this verse"
+        }));
+        // A note only means something on a verse that is kept.
+        self.tools_note.set_visible(starred);
+        self.tools_revealer.set_reveal_child(true);
+    }
+
+    /// Keeps or drops the picked verse, and redraws the chapter and the list.
+    fn toggle_favourite(self: &Rc<Self>) {
+        let Some((book, chapter, verse)) = self.picked() else {
+            return;
+        };
+        let name = self
+            .bible
+            .book(book)
+            .map_or("", |book| book.name.as_str())
+            .to_string();
+        let starred = self.favourites.toggle(&name, chapter, verse);
+        let reference = format!("{name} {chapter}:{verse}");
+        self.notify(if starred {
+            format!("Kept {reference}")
+        } else {
+            format!("Removed {reference}")
+        });
+        self.refresh_favourites();
+        self.render_chapter(self.book.get(), self.chapter.get());
+    }
+
+    /// The favourites page, with the books out beside it.
+    fn show_favourites(self: &Rc<Self>) {
+        self.set_sidebar(true);
+        self.refresh_favourites();
+        if self.stack.visible_child_name().as_deref() != Some("favourites") {
+            self.stack.set_visible_child_name("favourites");
+        }
+    }
+
+    /// Rebuilds the favourites list from the file.
+    fn refresh_favourites(&self) {
+        let rows = self.favourites.all();
+        self.favourites_model.remove_all();
+        for row in &rows {
+            self.favourites_model
+                .append(&gtk::StringObject::new(&row.reference()));
+        }
+        *self.favourites_rows.borrow_mut() = rows;
+        self.favourites_heading
+            .set_text(&match self.favourites.len() {
+                0 => "Favourites".to_string(),
+                1 => "Favourites \u{b7} 1 verse".to_string(),
+                count => format!("Favourites \u{b7} {count} verses"),
+            });
+        self.favourites_stack
+            .set_visible_child_name(if self.favourites.is_empty() {
+                "empty"
+            } else {
+                "list"
+            });
+    }
+
+    fn on_favourite_selected(self: &Rc<Self>, position: u32) {
+        if self.syncing.get() {
+            return;
+        }
+        let row = self
+            .favourites_rows
+            .borrow()
+            .get(position as usize)
+            .cloned();
+        let Some(row) = row else {
+            return;
+        };
+        let book = self.bible.book_index(&row.book);
+        if book == u32::MAX {
+            self.notify(format!("{} is not in this Bible", row.book));
+            return;
+        }
+        self.go_to(book, row.chapter, Some(row.verse));
+        self.scroll_list_to(&self.favourites_list, position);
+    }
+
+    /// A small window for the note on the picked verse.
+    fn edit_note(self: &Rc<Self>) {
+        let Some((book, chapter, verse)) = self.picked() else {
+            return;
+        };
+        let book = self
+            .bible
+            .book(book)
+            .map_or("", |book| book.name.as_str())
+            .to_string();
+        let reference = format!("{book} {chapter}:{verse}");
+        let existing = self
+            .favourites
+            .note(&book, chapter, verse)
+            .unwrap_or_default();
+
+        let window = adw::Window::builder()
+            .title(format!("Note on {reference}"))
+            .transient_for(&self.window)
+            .modal(true)
+            .default_width(420)
+            .default_height(320)
+            .build();
+
+        let header = adw::HeaderBar::new();
+        let title = adw::WindowTitle::new(&reference, "Note");
+        header.set_title_widget(Some(&title));
+
+        let cancel = gtk::Button::with_label("Cancel");
+        cancel.add_css_class("flat");
+        let closing = window.clone();
+        cancel.connect_clicked(move |_| closing.close());
+        header.pack_start(&cancel);
+
+        let view = gtk::TextView::new();
+        view.set_wrap_mode(gtk::WrapMode::WordChar);
+        view.set_top_margin(10);
+        view.set_bottom_margin(10);
+        view.set_left_margin(10);
+        view.set_right_margin(10);
+        view.set_accepts_tab(false);
+        view.add_css_class("note-view");
+
+        let buffer = view.buffer();
+        buffer.set_text(&existing);
+
+        let save = gtk::Button::with_label("Save");
+        save.add_css_class("suggested-action");
+        let me = self.clone();
+        let book = book.to_string();
+        let saving = window.clone();
+        save.connect_clicked(move |_| {
+            let me = me.clone();
+            let book = book.clone();
+            let note = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
+            me.favourites.set_note(&book, chapter, verse, note.as_str());
+            me.refresh_favourites();
+            me.render_chapter(me.book.get(), me.chapter.get());
+            if note.trim().is_empty() {
+                me.notify(format!("Note cleared on {reference}"));
+            } else {
+                me.notify(format!("Note saved on {reference}"));
+            }
+            saving.close();
+        });
+        header.pack_end(&save);
+
+        let scroller = gtk::ScrolledWindow::builder()
+            .vexpand(true)
+            .child(&view)
+            .build();
+        let toolbar = adw::ToolbarView::new();
+        toolbar.add_top_bar(&header);
+        toolbar.set_content(Some(&scroller));
+        window.set_content(Some(&toolbar));
+        window.present();
     }
 
     // ----------------------------------------------------------------- search
@@ -893,7 +1335,10 @@ impl MainWindow {
         self.results_model.remove_all();
         self.results.borrow_mut().clear();
         self.results_heading.set_text("Results");
-        self.stack.set_visible_child_name("browser");
+        // Favourites asked to be seen, so leave it on show.
+        if self.stack.visible_child_name().as_deref() != Some("favourites") {
+            self.stack.set_visible_child_name("browser");
+        }
     }
 
     // -------------------------------------------------------------- scrolling
@@ -1002,8 +1447,22 @@ fn markup(text: &str) -> String {
 
 /// Verbs that introduce what somebody says.
 const SPEAKS: &[&str] = &[
-    "said", "says", "say", "answered", "responded", "replied", "spoke", "cried", "asked",
-    "told", "preached", "proclaimed", "commanded", "instructed", "explained", "exclaimed",
+    "said",
+    "says",
+    "say",
+    "answered",
+    "responded",
+    "replied",
+    "spoke",
+    "cried",
+    "asked",
+    "told",
+    "preached",
+    "proclaimed",
+    "commanded",
+    "instructed",
+    "explained",
+    "exclaimed",
     "taught",
 ];
 
@@ -1088,7 +1547,9 @@ fn names_him(words: &[String]) -> bool {
 
 /// The word in front of the first verb of speech: who the words belong to.
 fn speaker_of(words: &[String]) -> Option<&str> {
-    let verb = words.iter().position(|word| SPEAKS.contains(&word.as_str()))?;
+    let verb = words
+        .iter()
+        .position(|word| SPEAKS.contains(&word.as_str()))?;
     words[..verb]
         .iter()
         .rev()
@@ -1198,7 +1659,10 @@ mod tests {
     #[test]
     fn marks_the_name_wherever_it_is_said() {
         assert_eq!(markup("Jesus wept."), format!("{RED} wept."));
-        assert_eq!(markup("They saw Jesus, and feared."), format!("They saw {RED}, and feared."));
+        assert_eq!(
+            markup("They saw Jesus, and feared."),
+            format!("They saw {RED}, and feared.")
+        );
         assert_eq!(markup("of jesus"), format!("of {RED}"));
         assert_eq!(markup("JESUS"), RED);
     }
