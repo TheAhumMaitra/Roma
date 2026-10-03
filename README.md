@@ -2,6 +2,8 @@
 
 A Catholic Bible reader app. Available for Desktops, Laptops, etc! It uses `CPDV` Bible version!
 
+https://github.com/user-attachments/assets/5b8f118a-ac92-4f1e-8208-8bd0134fb177
+
 # Installation
 Easy to install for Linux, MacOS, Windows
 
