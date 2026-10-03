@@ -74,6 +74,28 @@ fn labels(widgets: &[gtk::Widget]) -> Vec<String> {
         .collect()
 }
 
+fn help_names_the_app() {
+    let Some(reader) = reader() else {
+        return;
+    };
+    let help = roma::help::present(reader.window());
+    let texts = labels(&descendants(&help));
+
+    assert!(texts.contains(&"Roma".to_string()), "the name");
+    assert!(
+        texts.contains(&format!("Version {}", env!("CARGO_PKG_VERSION"))),
+        "the version"
+    );
+    assert!(
+        texts.iter().any(|text| text.starts_with("Made by ")),
+        "the creator"
+    );
+    assert!(
+        texts.iter().any(|text| text.contains("GNU GENERAL PUBLIC LICENSE")),
+        "the licence text"
+    );
+}
+
 fn opens_on_the_first_chapter() {
     let Some(reader) = reader() else {
         return;
@@ -89,7 +111,7 @@ fn opens_on_the_first_chapter() {
         .filter(|widget| has_class(widget, "document-footer"))
         .collect();
     assert_eq!(footer.len(), 1);
-    assert_eq!(footer[0].downcast_ref::<gtk::Label>().unwrap().text(), "Genesis 1 \u{b7} 31 verses");
+    assert_eq!(footer[0].downcast_ref::<gtk::Label>().unwrap().text(), "31 verses \u{b7} OLD TESTAMENT");
 }
 
 fn titles_are_headings_and_verses_are_bold_paragraphs() {
@@ -260,10 +282,30 @@ fn chapters_without_text_say_so() {
     );
 }
 
+fn the_words_of_jesus_are_marked() {
+    let Some(reader) = reader() else {
+        return;
+    };
+    let speaking = |widgets: &[gtk::Widget]| {
+        widgets
+            .iter()
+            .filter(|widget| has_class(widget, "verse-text") && has_class(widget, "speaks"))
+            .count()
+    };
+
+    reader.go_to(49, 3, None);
+    let marked = speaking(&descendants(reader.window()));
+    assert!(marked > 5, "much of John 3 is his speech, got {marked}");
+
+    // Before the New Testament nobody speaks as Jesus.
+    reader.go_to(0, 1, None);
+    assert_eq!(speaking(&descendants(reader.window())), 0);
+}
+
 /// GTK belongs to the thread that started it, so every check shares one test.
 #[test]
 fn reader_window() {
-    let checks: [(&str, fn()); 7] = [
+    let checks: [(&str, fn()); 9] = [
         ("opens on the first chapter", opens_on_the_first_chapter),
         (
             "titles are headings and verses are bold paragraphs",
@@ -286,6 +328,8 @@ fn reader_window() {
             walks_forward_and_back_through_chapters,
         ),
         ("chapters without text say so", chapters_without_text_say_so),
+        ("the words of Jesus are marked", the_words_of_jesus_are_marked),
+        ("the help screen names the app and its maker", help_names_the_app),
     ];
 
     if gtk::init().is_err() {
