@@ -16,6 +16,118 @@
       You should have received a copy of the GNU General Public License
       along with this program.  If not, see <https://www.gnu.org/licenses/>. */
 
+/* Palette and type ------------------------------------------------------- */
+/* Roma draws itself: nothing here follows the desktop theme. The window is
+   black, the type is JetBrainsMono Nerd Font in its weights, and the only
+   other colour is the red of the words of Jesus. */
+
+window {
+  --roma-bg: #000000;
+  --roma-fg: #dedede;
+  --roma-dim: #7e7e7e;
+  --roma-accent: #ff4d45;
+  --roma-line: #1b1b1b;
+  --roma-raise: #0e0e0e;
+  --roma-hover: #161616;
+  --roma-pick: #1c1c1c;
+  --roma-pick-line: #ececec;
+}
+
+@define-color window_bg_color #000000;
+@define-color view_bg_color #000000;
+@define-color sidebar_bg_color #000000;
+@define-color sidebar_backdrop_color #000000;
+@define-color card_bg_color #000000;
+@define-color card_shade_color transparent;
+@define-color popover_bg_color #000000;
+@define-color dialog_bg_color #000000;
+@define-color menu_bg_color #000000;
+@define-color popover-menu-bg-color #000000;
+@define-color tooltip_bg_color #000000;
+@define-color popover-tooltip-bg-color #000000;
+@define-color headerbar_bg_color #000000;
+@define-color headerbar_backdrop_color #000000;
+@define-color headerbar_shade_color transparent;
+@define-color headerbar_darker_shade_color transparent;
+@define-color headerbar_border_color #1b1b1b;
+@define-color insensitive_bg_color #000000;
+@define-color shade_color #000000;
+@define-color scrollbar_outline_color #000000;
+@define-color selection_bg_color #2e2e2e;
+@define-color selection_color #f4f4f4;
+
+* {
+  font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;
+  font-size: 10.5pt;
+}
+
+window,
+.view,
+popover > contents,
+modelbutton {
+  background-color: var(--roma-bg);
+  color: var(--roma-fg);
+}
+
+label,
+entry,
+.title-1 {
+  color: var(--roma-fg);
+}
+
+separator {
+  background-color: var(--roma-line);
+}
+
+selection {
+  background-color: @selection_bg_color;
+  color: @selection_color;
+}
+
+entry,
+spinbutton {
+  caret-color: var(--roma-accent);
+  color: var(--roma-fg);
+}
+
+label.dim-label {
+  color: var(--roma-dim);
+}
+
+entry:focus,
+.search-field:focus {
+  border-color: var(--roma-accent);
+  box-shadow: 0 0 0 3px rgba(255, 77, 69, 0.16);
+}
+
+/* Scrollbars, kept out of the way. */
+
+scrollbar {
+  background-color: transparent;
+  border: none;
+}
+
+scrollbar slider {
+  min-width: 6px;
+  min-height: 32px;
+  margin: 2px;
+  border-radius: 999px;
+  background-color: #262626;
+  border: none;
+}
+
+scrollbar slider:hover {
+  background-color: #3a3a3a;
+}
+
+/* The words of Jesus ----------------------------------------------------- */
+
+.verse-text.speaks {
+  color: var(--roma-accent);
+  font-weight: bold;
+  font-style: italic;
+}
+
 /* Header bar ------------------------------------------------------------- */
 
 button.flat,
@@ -24,167 +136,204 @@ button.flat,
 }
 
 .chapter-button {
-  min-width: 28px;
-  min-height: 24px;
-  padding: 1px 6px;
-  border-radius: 8px;
-  font-size: 0.85em;
+  min-width: 30px;
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: 9px;
+  font-size: 11pt;
+  color: var(--roma-dim);
+  background-color: transparent;
+  border: 1px solid var(--roma-line);
 }
 
 .chapter-button:hover {
-  background-color: alpha(@theme_fg_color, 0.12);
+  color: var(--roma-fg);
+  background-color: var(--roma-hover);
+  border-color: #2a2a2a;
 }
 
 .chapter-button:active {
-  background-color: alpha(@theme_fg_color, 0.2);
+  color: var(--roma-accent);
+  background-color: var(--roma-raise);
 }
 
 .search-field {
-  border-radius: 999px;
-  background-color: alpha(@theme_fg_color, 0.07);
-  border: 1px solid alpha(@theme_fg_color, 0.08);
-  padding: 4px 12px;
+  border-radius: 9px;
+  min-height: 24px;
+  background-color: var(--roma-raise);
+  border: 1px solid var(--roma-line);
+  padding: 3px 10px;
+  font-size: 10pt;
 }
 
 .search-field:hover {
-  background-color: alpha(@theme_fg_color, 0.11);
-}
-
-.search-field:focus {
-  background-color: @view_bg_color;
-  border-color: @accent_bg_color;
+  border-color: #2a2a2a;
+  background-color: var(--roma-hover);
 }
 
 /* Sidebar ---------------------------------------------------------------- */
 
 .sidebar-heading {
-  font-size: 0.78em;
+  font-size: 8.5pt;
   font-weight: bold;
-  color: alpha(@theme_fg_color, 0.55);
+  color: var(--roma-dim);
 }
 
 .book {
-  border-radius: 12px;
-  padding: 8px 12px;
+  border-radius: 8px;
+  padding: 7px 12px;
   margin-bottom: 2px;
   margin-left: 8px;
   margin-right: 8px;
+  color: var(--roma-fg);
 }
 
 .book:hover {
-  background-color: alpha(@theme_fg_color, 0.06);
+  background-color: var(--roma-hover);
 }
 
 .book:selected {
-  background-color: @accent_bg_color;
-  color: @accent_fg_color;
+  background-color: var(--roma-pick);
+  color: var(--roma-fg);
   font-weight: bold;
+  box-shadow: inset 2px 0 0 var(--roma-pick-line);
 }
 
 .book-section {
-  font-size: 0.78em;
+  font-size: 8.5pt;
   font-weight: bold;
-  color: @accent_color;
-  margin-top: 14px;
-  margin-bottom: 4px;
+  color: var(--roma-accent);
+  margin-top: 16px;
+  margin-bottom: 6px;
   margin-left: 20px;
   margin-right: 12px;
 }
 
 .chip {
   border-radius: 999px;
-  padding: 5px 14px;
+  padding: 5px 12px;
+  font-size: 9.5pt;
   font-weight: bold;
-  background-color: alpha(@theme_fg_color, 0.08);
-  border: none;
+  color: var(--roma-dim);
+  background-color: var(--roma-raise);
+  border: 1px solid var(--roma-line);
 }
 
 .chip:hover {
-  background-color: alpha(@theme_fg_color, 0.14);
+  color: var(--roma-fg);
+  background-color: var(--roma-hover);
 }
 
 .chip:checked {
-  background-color: @accent_bg_color;
-  color: @accent_fg_color;
+  background-color: var(--roma-pick);
+  color: var(--roma-fg);
+  border-color: var(--roma-pick-line);
 }
 
 /* Results ---------------------------------------------------------------- */
 
 .result {
-  border-radius: 12px;
-  padding: 8px 10px;
+  border-radius: 8px;
+  padding: 7px 12px;
   margin-bottom: 2px;
   margin-left: 8px;
   margin-right: 8px;
 }
 
 .result:hover {
-  background-color: alpha(@theme_fg_color, 0.06);
+  background-color: var(--roma-hover);
 }
 
 .result:selected {
-  background-color: @accent_bg_color;
+  background-color: var(--roma-pick);
+  box-shadow: inset 2px 0 0 var(--roma-pick-line);
 }
 
 .result-reference {
   font-weight: bold;
-  color: @accent_color;
+  color: var(--roma-accent);
 }
 
 .result-snippet {
-  font-size: 0.85em;
-  color: alpha(@theme_fg_color, 0.65);
+  font-size: 9pt;
+  color: var(--roma-dim);
 }
 
 .result:selected .result-reference,
 .result:selected .result-snippet {
-  color: @accent_fg_color;
+  color: var(--roma-fg);
 }
 
 /* Reading pane ----------------------------------------------------------- */
 
 .title-1 {
-  font-size: 26pt;
-  font-weight: 800;
+  font-size: 17pt;
+  font-weight: bold;
   margin-bottom: 2px;
 }
 
 .eyebrow {
-  font-size: 0.78em;
+  font-size: 9pt;
   font-weight: bold;
-  color: @accent_color;
-  margin-bottom: 4px;
+  color: var(--roma-accent);
+  margin-bottom: 6px;
 }
 
 .divider {
   min-height: 1px;
-  background-color: alpha(@theme_fg_color, 0.12);
+  background-color: var(--roma-line);
+  margin-top: 14px;
+  margin-bottom: 10px;
 }
 
 .verse {
-  border-radius: 12px;
-  padding: 5px 10px;
-  margin-bottom: 2px;
+  border-radius: 8px;
+  padding: 4px 10px;
+  margin-bottom: 4px;
 }
 
 .verse:hover {
-  background-color: alpha(@theme_fg_color, 0.05);
+  background-color: var(--roma-hover);
 }
 
 .verse-number {
+  font-size: 9pt;
   font-weight: bold;
-  color: @accent_color;
+  color: var(--roma-accent);
+  padding-top: 3px;
+  opacity: 0.75;
 }
 
 .verse-text {
-  font-weight: bold;
+  font-size: 10.5pt;
+  line-height: 1.5;
 }
 
 .verse.highlighted {
-  background-color: alpha(@accent_bg_color, 0.35);
+  background-color: var(--roma-pick);
+  box-shadow: inset 2px 0 0 var(--roma-pick-line);
 }
 
 .document-footer {
-  font-size: 0.8em;
-  color: alpha(@theme_fg_color, 0.55);
+  font-size: 8.5pt;
+  color: var(--roma-dim);
+}
+/* Help window ------------------------------------------------------------ */
+
+.help-meta {
+  font-size: 9.5pt;
+  color: var(--roma-dim);
+}
+
+.licence-frame {
+  background-color: var(--roma-raise);
+  border: 1px solid var(--roma-line);
+  border-radius: 10px;
+}
+
+.licence-text {
+  font-size: 8pt;
+  line-height: 1.45;
+  color: var(--roma-dim);
+  padding: 12px 14px;
 }
